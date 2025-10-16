@@ -1,6 +1,7 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.15)
 
 project(MetaParser CXX)
+
 
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/../CMake")
 
@@ -101,7 +102,42 @@ add_executable(MetaParser ${HEADER_FILES} ${SOURCE_FILES})
 link_directories(${LLVM_LIBRARY_DIR})
 
 # statically link with Boost & LibClang
-target_link_libraries(MetaParser ${Boost_LIBRARIES} ${LIBCLANG_LIBRARY})
+# Explicitly link per-config Boost component libraries when available to ensure correct Debug/Release variants
+if (TARGET MetaParser)
+    # Prefer component-specific variables provided by FindBoost to avoid wrong variants in multi-config generators
+    set(_BOOST_LIBS)
+    foreach(_comp IN ITEMS filesystem system program_options regex)
+        string(TOUPPER ${_comp} _COMP_UP)
+        # Compose variable names like Boost_FILESYSTEM_LIBRARY_DEBUG/RELEASE
+        if (DEFINED Boost_${_COMP_UP}_LIBRARY_DEBUG OR DEFINED Boost_${_COMP_UP}_LIBRARY_RELEASE)
+            if (DEFINED Boost_${_COMP_UP}_LIBRARY_DEBUG)
+                list(APPEND _BOOST_LIBS debug ${Boost_${_COMP_UP}_LIBRARY_DEBUG})
+            endif()
+            if (DEFINED Boost_${_COMP_UP}_LIBRARY_RELEASE)
+                list(APPEND _BOOST_LIBS optimized ${Boost_${_COMP_UP}_LIBRARY_RELEASE})
+            endif()
+        endif()
+    endforeach()
+
+    if (_BOOST_LIBS)
+        target_link_libraries(MetaParser ${_BOOST_LIBS} ${LIBCLANG_LIBRARY})
+    else()
+        # Fallback to whatever FindBoost populated
+        target_link_libraries(MetaParser ${Boost_LIBRARIES} ${LIBCLANG_LIBRARY})
+    endif()
+else()
+    target_link_libraries(MetaParser ${Boost_LIBRARIES} ${LIBCLANG_LIBRARY})
+endif()
+
+# Ensure MSVC uses the static runtime to match Boost "-s" libraries when linking statically
+if (MSVC)
+    # Use static runtime (/MT) for all configurations to match Boost "-s" libraries available on this system
+    set_property(TARGET MetaParser PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+    # In Debug config, also disable iterator debugging to match release-built Boost static libs
+    target_compile_definitions(MetaParser PRIVATE
+        $<$<CONFIG:Debug>:_ITERATOR_DEBUG_LEVEL=0;_HAS_ITERATOR_DEBUGGING=0;NDEBUG>
+    )
+endif()
 
 set_precompiled_header(MetaParser Precompiled.h Precompiled.cpp)
 

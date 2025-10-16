@@ -161,6 +161,23 @@ protected:
     void dump(string &out) const override { json11::dump(m_value, out); }
 };
 
+// Specialization to handle std::nullptr_t which has no valid ordering
+template<>
+class Value<Json::NUL, std::nullptr_t> : public JsonValue {
+protected:
+    explicit Value(const std::nullptr_t &) {}
+    explicit Value(std::nullptr_t &&) {}
+    Json::Type type() const override { return Json::NUL; }
+    bool equals(const JsonValue * /*other*/) const override {
+        // Types are checked before calling equals; all nulls are equal
+        return true;
+    }
+    bool less(const JsonValue * /*other*/) const override {
+        return false;
+    }
+    void dump(string &out) const override { json11::dump(nullptr, out); }
+};
+
 class JsonDouble final : public Value<Json::NUMBER, double> {
     double number_value() const override { return m_value; }
     int int_value() const override { return static_cast<int>(m_value); }
@@ -211,6 +228,8 @@ public:
 class JsonNull final : public Value<Json::NUL, std::nullptr_t> {
 public:
     JsonNull() : Value(nullptr) {}
+    // nullptr_t has no ordering; define a stable ordering as always equal (no less-than)
+    bool less(const JsonValue * /*other*/) const override { return false; }
 };
 
 /* * * * * * * * * * * * * * * * * * * *
